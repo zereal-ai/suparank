@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from .suparank import Suparank
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 
 app = FastAPI()
 
@@ -18,11 +19,14 @@ app.add_middleware(
 )
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Initialize Suparank
 token = os.getenv("AIRTABLE_TOKEN")
 base_id = os.getenv("AIRTABLE_BASE_ID")
+
+print(f"Debug - Token length: {len(token) if token else 0}")
+print(f"Debug - Base ID: {base_id}")
 
 if not token or not base_id:
     raise ValueError("AIRTABLE_TOKEN and AIRTABLE_BASE_ID must be set in environment variables")
@@ -41,6 +45,8 @@ class ComparisonChoice(BaseModel):
 @app.get("/api/next-pair")
 async def get_next_pair():
     pair = suparank.get_next_pair()
+    debug_info = suparank.get_debug_info()
+    print("\n".join(debug_info))  # Print debug info to terminal
     if not pair:
         return {"message": "Ranking complete", "complete": True}
     return {"pair": pair, "complete": False}
@@ -49,18 +55,37 @@ async def get_next_pair():
 async def choose_winner(choice: ComparisonChoice):
     try:
         suparank.choose_winner(choice.winner_id, choice.loser_id)
+        debug_info = suparank.get_debug_info()
+        print("\n".join(debug_info))  # Print debug info to terminal
         return {"message": "Choice recorded successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/rankings")
 async def get_rankings():
-    return {"rankings": suparank.get_rankings()}
+    # Force reload entries from Airtable to ensure fresh data
+    suparank.load_entries()
+    rankings = suparank.get_rankings()
+    debug_info = suparank.get_debug_info()
+    print("\n".join(debug_info))  # Print debug info to terminal
+    return {"rankings": rankings}
 
 @app.post("/api/entries")
 async def add_entry(entry: EntryCreate):
     try:
         new_entry = suparank.add_entry(entry.title, entry.description)
+        debug_info = suparank.get_debug_info()
+        print("\n".join(debug_info))  # Print debug info to terminal
         return {"entry": new_entry}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/reset")
+async def reset_rankings():
+    try:
+        suparank.reset_ranking()
+        debug_info = suparank.get_debug_info()
+        print("\n".join(debug_info))  # Print debug info to terminal
+        return {"message": "Rankings reset successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) 

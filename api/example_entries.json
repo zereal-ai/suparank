@@ -1,0 +1,27 @@
+[
+    {
+        "Title": "Implement User Authentication",
+        "Description": "Add secure login and registration system with OAuth support for Google and GitHub.",
+        "Rank": null
+    },
+    {
+        "Title": "Design Database Schema",
+        "Description": "Create ERD and implement database migrations for core functionality.",
+        "Rank": null
+    },
+    {
+        "Title": "Setup CI/CD Pipeline",
+        "Description": "Configure GitHub Actions for automated testing and deployment.",
+        "Rank": null
+    },
+    {
+        "Title": "Create API Documentation",
+        "Description": "Write comprehensive API docs using OpenAPI/Swagger specification.",
+        "Rank": null
+    },
+    {
+        "Title": "Implement Error Handling",
+        "Description": "Add global error handling and logging system for better debugging.",
+        "Rank": null
+    }
+] 

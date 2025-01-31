@@ -1,101 +1,111 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Item, ComparisonPair, getRankings, getNextPair, resetRanking } from './api';
+import { AddItemForm } from './components/AddItemForm';
+import { ComparisonSection } from './components/ComparisonSection';
+import { RankingsList } from './components/RankingsList';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [items, setItems] = useState<Item[]>([]);
+  const [currentPair, setCurrentPair] = useState<ComparisonPair | null>(null);
+  const [loading, setLoading] = useState(true);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  // Initial data loading
+  useEffect(() => {
+    loadRankings();
+    loadNextPair();
+  }, []);
+
+  async function loadRankings() {
+    try {
+      const rankings = await getRankings();
+      setItems(rankings);
+    } catch (error) {
+      console.error('Failed to load rankings:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadNextPair() {
+    try {
+      const pair = await getNextPair();
+      setCurrentPair(pair);
+    } catch (error) {
+      console.error('Failed to load next pair:', error);
+      setCurrentPair(null);
+    }
+  }
+
+  async function handleWinnerChosen() {
+    await loadRankings();
+    await loadNextPair();
+  }
+
+  async function handleReset() {
+    try {
+      setLoading(true);
+      setCurrentPair(null);
+      
+      // Force a delay to ensure visual feedback
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Call the reset endpoint
+      await resetRanking();
+      
+      // Get fresh data
+      const rankings = await getRankings();
+      setItems(rankings);
+      
+      // Keep trying to get a new pair until we succeed
+      let attempts = 0;
+      let pair = null;
+      while (attempts < 3) {
+        pair = await getNextPair();
+        if (pair && !pair.complete) {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500)); // Wait before retrying
+        attempts++;
+      }
+      
+      if (!pair || pair.complete) {
+        throw new Error('No pairs available after reset');
+      }
+      
+      setCurrentPair(pair);
+    } catch (error) {
+      console.error('Failed to restart ranking:', error);
+      setCurrentPair(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleItemAdded() {
+    await loadRankings();
+    await loadNextPair();
+  }
+
+  return (
+    <div className="min-h-screen bg-white">
+      <main className="max-w-2xl mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-12 text-gray-900">
+          Suparank
+        </h1>
+        
+        <div className="space-y-12">
+          <AddItemForm onItemAdded={handleItemAdded} />
+          <ComparisonSection 
+            currentPair={currentPair}
+            items={items}
+            onWinnerChosen={handleWinnerChosen}
+            onReset={handleReset}
+          />
+          <RankingsList items={items} loading={loading} />
         </div>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
