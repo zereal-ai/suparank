@@ -1,5 +1,5 @@
 // Use environment variable for API URL, falling back to localhost only in development
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/api` : 'http://localhost:8000/api';
 
 // Vercel automatically injects VERCEL_ENV: 'production' | 'preview' | 'development'
 const isProduction = process.env.VERCEL_ENV === 'production';
@@ -24,7 +24,7 @@ export interface ComparisonPair {
 }
 
 export async function getRankings(): Promise<Item[]> {
-  const response = await fetch(`${API_URL}/api/rankings`, {
+  const response = await fetch(`${API_URL}/rankings`, {
     method: 'GET',
     mode: 'cors',
     headers: NO_CACHE_HEADERS
@@ -37,7 +37,7 @@ export async function getRankings(): Promise<Item[]> {
 }
 
 export async function getNextPair(): Promise<ComparisonPair | null> {
-  const response = await fetch(`${API_URL}/api/next-pair`, {
+  const response = await fetch(`${API_URL}/next-pair`, {
     method: 'GET',
     mode: 'cors',
     headers: NO_CACHE_HEADERS
@@ -53,7 +53,7 @@ export async function getNextPair(): Promise<ComparisonPair | null> {
 }
 
 export async function addItem(title: string, description: string): Promise<Item> {
-  const response = await fetch(`${API_URL}/api/entries`, {
+  const response = await fetch(`${API_URL}/entries`, {
     method: 'POST',
     mode: 'cors',
     headers: NO_CACHE_HEADERS,
@@ -67,7 +67,7 @@ export async function addItem(title: string, description: string): Promise<Item>
 }
 
 export async function chooseWinner(winnerId: string, loserId: string): Promise<void> {
-  const response = await fetch(`${API_URL}/api/choose`, {
+  const response = await fetch(`${API_URL}/choose`, {
     method: 'POST',
     mode: 'cors',
     headers: NO_CACHE_HEADERS,
@@ -83,7 +83,7 @@ export async function chooseWinner(winnerId: string, loserId: string): Promise<v
 }
 
 export async function resetRanking(): Promise<void> {
-  const response = await fetch(`${API_URL}/api/reset`, {
+  const response = await fetch(`${API_URL}/reset`, {
     method: 'POST',
     mode: 'cors',
     headers: NO_CACHE_HEADERS
