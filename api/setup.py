@@ -5,11 +5,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 import requests
 
+
 def load_example_entries():
     """Load example entries from JSON file"""
     json_path = Path(__file__).parent / "example_entries.json"
-    with open(json_path, 'r') as f:
+    with open(json_path, "r") as f:
         return json.load(f)
+
 
 def setup_airtable():
     # Load environment variables
@@ -18,47 +20,36 @@ def setup_airtable():
     base_id = os.getenv("AIRTABLE_BASE_ID")
 
     if not token or not base_id:
-        raise ValueError("AIRTABLE_TOKEN and AIRTABLE_BASE_ID must be set in environment variables")
+        raise ValueError(
+            "AIRTABLE_TOKEN and AIRTABLE_BASE_ID must be set in environment variables"
+        )
 
     # Initialize Airtable API
     api = Api(token)
-    
+
     # Define required fields
     required_fields = [
-        {
-            "name": "Title",
-            "type": "singleLineText"
-        },
-        {
-            "name": "Description",
-            "type": "multilineText"
-        },
-        {
-            "name": "Rank",
-            "type": "number",
-            "options": {
-                "precision": 0
-            }
-        }
+        {"name": "Title", "type": "singleLineText"},
+        {"name": "Description", "type": "multilineText"},
+        {"name": "Rank", "type": "number", "options": {"precision": 0}},
     ]
 
     try:
         # Get metadata about the base
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(
-            f"https://api.airtable.com/v0/meta/bases/{base_id}/tables",
-            headers=headers
+            f"https://api.airtable.com/v0/meta/bases/{base_id}/tables", headers=headers
         )
         if response.status_code != 200:
             raise Exception(f"Failed to get tables: {response.text}")
-            
+
         tables = response.json().get("tables", [])
         existing_table = next((t for t in tables if t["name"] == "Entries"), None)
-        
+
         if existing_table:
             print("\nFound existing table 'Entries'")
             table = api.table(base_id, existing_table["id"])
-            
+
             # Check and create missing fields
             print("\nChecking fields...")
             existing_fields = {f["name"]: f for f in existing_table["fields"]}
@@ -69,7 +60,7 @@ def setup_airtable():
                     print(f"- Missing field: {field['name']}")
                 else:
                     print(f"- Found field: {field['name']}")
-            
+
             # Create any missing fields
             if missing_fields:
                 print("\nCreating missing fields...")
@@ -78,14 +69,16 @@ def setup_airtable():
                     response = requests.post(
                         f"https://api.airtable.com/v0/meta/bases/{base_id}/tables/{existing_table['id']}/fields",
                         headers=headers,
-                        json=field
+                        json=field,
                     )
                     if response.status_code != 200:
-                        raise Exception(f"Failed to create field {field['name']}: {response.text}")
+                        raise Exception(
+                            f"Failed to create field {field['name']}: {response.text}"
+                        )
                     print(f"  ✓ Created field: {field['name']}")
             else:
                 print("All required fields exist")
-            
+
             # Check for existing entries
             existing_entries = table.all()
             if existing_entries:
@@ -103,12 +96,12 @@ def setup_airtable():
                 json={
                     "name": "Entries",
                     "description": "Entries to be ranked",
-                    "fields": required_fields
-                }
+                    "fields": required_fields,
+                },
             )
             if response.status_code != 200:
                 raise Exception(f"Failed to create table: {response.text}")
-                
+
             table_data = response.json()
             table = api.table(base_id, table_data["id"])
             print("✓ Table created successfully")
@@ -126,6 +119,7 @@ def setup_airtable():
         print(f"\nError in setup: {str(e)}")
         return None
 
+
 if __name__ == "__main__":
     print("\nStarting Suparank setup...")
     table_id = setup_airtable()
@@ -134,4 +128,4 @@ if __name__ == "__main__":
         print("Add this to your .env file if not already present:")
         print(f"AIRTABLE_TABLE_ID={table_id}")
     else:
-        print("\nSetup failed. Please check the errors above.") 
+        print("\nSetup failed. Please check the errors above.")

@@ -24,7 +24,7 @@ export function RankingsList({ items, loading }: RankingsListProps) {
           </p>
         ) : (
           <div className="space-y-4">
-            {items.map((entry, index) => (
+            {items.map((entry) => (
               <div
                 key={entry.id}
                 className={`flex items-center gap-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200`}

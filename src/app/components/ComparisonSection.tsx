@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Item, ComparisonPair, chooseWinner, resetRanking } from '../api';
+import { useState, useEffect, useCallback } from 'react';
+import { Item, ComparisonPair, chooseWinner } from '../api';
 import { CheckIcon, ArrowLeftCircleIcon, ArrowRightCircleIcon } from '@heroicons/react/24/solid';
 
 interface ComparisonSectionProps {
@@ -18,28 +18,7 @@ export function ComparisonSection({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  // Keyboard navigation
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (!currentPair || currentPair.complete || isAnimating) return;
-
-      switch (e.key) {
-        case 'ArrowLeft':
-          e.preventDefault();
-          handleSelection(0);
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          handleSelection(1);
-          break;
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPair, isAnimating]);
-
-  async function handleSelection(index: number) {
+  const handleSelection = useCallback(async (index: number) => {
     if (!currentPair || isAnimating) return;
     
     try {
@@ -60,7 +39,28 @@ export function ComparisonSection({
       setSelectedIndex(null);
       setIsAnimating(false);
     }
-  }
+  }, [currentPair, isAnimating, onWinnerChosen]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!currentPair || currentPair.complete || isAnimating) return;
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          handleSelection(0);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          handleSelection(1);
+          break;
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentPair, isAnimating, handleSelection]);
 
   async function handleRestartRanking() {
     try {
@@ -76,24 +76,37 @@ export function ComparisonSection({
       <h2 className="text-lg font-medium mb-4 text-gray-900">
         Compare Items
       </h2>
-      {currentPair?.pair && !currentPair.complete ? (
+      {currentPair?.complete || (items.length > 0 && items.every(item => item.rank !== null)) ? (
+        <div className="text-center py-8">
+          <p className="text-gray-600 mb-4">All items have been ranked! Would you like to start a new ranking session?</p>
+          <button
+            onClick={handleRestartRanking}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            <ArrowLeftCircleIcon className="h-5 w-5 mr-2" />
+            Start New Ranking Session
+          </button>
+        </div>
+      ) : currentPair?.pair ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {currentPair.pair.map((entry, index) => (
             <button
               key={entry.id}
               onClick={() => handleSelection(index)}
               disabled={isAnimating}
-              className={`p-6 text-left rounded-lg transition-all duration-300 ${
+              className={`w-full p-6 text-left rounded-lg transition-all duration-300 ${
                 selectedIndex === index
                   ? "bg-blue-100 border-blue-500 scale-105 transform"
                   : selectedIndex === null
                   ? "bg-white hover:bg-gray-50 border-gray-200"
                   : "bg-gray-50 border-gray-200"
-              } border-2 relative min-h-[200px]`}
+              } border-2 relative h-[280px] flex flex-col`}
             >
-              <div className="mb-12">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">{entry.title}</h3>
-                <p className="text-gray-600 text-sm">{entry.description}</p>
+              <div className="flex-grow flex flex-col min-h-0">
+                <div className="h-[56px] mb-2">
+                  <h3 className="text-lg font-semibold text-gray-900 line-clamp-2">{entry.title}</h3>
+                </div>
+                <p className="text-gray-600 text-sm line-clamp-4 flex-shrink">{entry.description}</p>
               </div>
               {selectedIndex === index && (
                 <div className="absolute inset-0 flex items-center justify-center bg-blue-500/10 rounded-lg">
@@ -102,18 +115,22 @@ export function ComparisonSection({
                   </div>
                 </div>
               )}
-              <div className={`absolute ${index === 0 ? 'left-4' : 'right-4'} bottom-4 flex items-center gap-2 text-gray-500`}>
-                {index === 0 ? (
-                  <>
-                    <ArrowLeftCircleIcon className="w-6 h-6" />
-                    <span className="text-sm">Left Arrow</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-sm">Right Arrow</span>
-                    <ArrowRightCircleIcon className="w-6 h-6" />
-                  </>
-                )}
+              <div className="mt-auto pt-4 w-full">
+                <div className={`flex ${index === 0 ? 'justify-start' : 'justify-end'}`}>
+                  <div className="inline-flex items-center gap-2 text-gray-500 border border-gray-200 rounded-md px-3 py-1.5">
+                    {index === 0 ? (
+                      <>
+                        <ArrowLeftCircleIcon className="w-5 h-5" />
+                        <span className="text-sm">Left Arrow</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-sm">Right Arrow</span>
+                        <ArrowRightCircleIcon className="w-5 h-5" />
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
             </button>
           ))}
