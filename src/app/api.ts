@@ -1,8 +1,12 @@
+// Use environment variable for API URL, falling back to localhost only in development
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// Vercel automatically injects VERCEL_ENV: 'production' | 'preview' | 'development'
+const isProduction = process.env.VERCEL_ENV === 'production';
 
 const NO_CACHE_HEADERS = {
   'Content-Type': 'application/json',
-  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  'Cache-Control': isProduction ? 'no-cache, no-store, must-revalidate' : 'no-store',
   'Pragma': 'no-cache',
   'Expires': '0'
 };

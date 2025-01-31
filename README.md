@@ -1,6 +1,85 @@
 # Suparank
 
-A web application for ranking items using a merge sort algorithm and Airtable as the backend.
+A web application for ranking items using a merge sort algorithm.
+
+## Development Setup
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Copy `.env.example` to `.env.local` and fill in your environment variables:
+```bash
+cp .env.example .env.local
+```
+
+3. Run the development server:
+```bash
+npm run dev
+```
+
+## Deployment to Vercel
+
+1. Push your code to a GitHub repository
+
+2. Connect your repository to Vercel:
+   - Go to [Vercel](https://vercel.com)
+   - Click "New Project"
+   - Import your GitHub repository
+
+3. Configure environment variables in Vercel:
+   - Go to Project Settings > Environment Variables
+   - Add the following variables for each environment (Production/Preview):
+     ```
+     # Production environment
+     NEXT_PUBLIC_API_URL=https://api.your-domain.com  # Your production API URL
+     AIRTABLE_API_KEY=your_airtable_api_key
+     AIRTABLE_BASE_ID=your_airtable_base_id
+     AIRTABLE_TABLE_ID=your_airtable_table_id
+
+     # Preview environments (optional, for PR previews)
+     NEXT_PUBLIC_API_URL=https://api-staging.your-domain.com  # Your staging API URL
+     AIRTABLE_API_KEY=your_staging_airtable_api_key
+     AIRTABLE_BASE_ID=your_staging_base_id
+     AIRTABLE_TABLE_ID=your_staging_table_id
+     ```
+
+4. Git Integration:
+   - Production deployments are automatically triggered when pushing to the main branch
+   - Preview deployments are created for each Pull Request
+   - Development environment uses your local `.env.local` file
+
+5. Environment Behavior:
+   - Production (main branch): Uses production environment variables
+   - Preview (Pull Requests): Uses preview environment variables
+   - Development (local): Uses `.env.local` variables
+
+6. Automatic Deployments:
+   - Vercel automatically deploys your application
+   - Each environment gets its own URL:
+     - Production: `your-app.vercel.app`
+     - Preview: `your-app-git-pr-XX-username.vercel.app`
+     - Development: `localhost:3000`
+
+## Project Structure
+
+- `src/app/` - Next.js application code
+  - `components/` - React components
+  - `api.ts` - API client functions
+  - `page.tsx` - Main application page
+- `api/` - Backend API code
+  - `index.py` - FastAPI application
+  - `suparank.py` - Ranking logic
+
+## Features
+
+- Add items with title and description
+- Compare items in pairs
+- Keyboard navigation (left/right arrows)
+- Visual feedback for selections
+- Persistent rankings in Airtable
+- Reset ranking session
 
 ## Setup
 
