@@ -1,6 +1,6 @@
 # Suparank
 
-A command-line interface application that helps you prioritize tasks through pairwise comparisons. By comparing tasks two at a time, Suparank builds a ranked list of your tasks.
+A command-line interface application that helps you prioritize entries through pairwise comparisons. By comparing entries two at a time, Suparank builds a ranked list of your entries.
 
 ## Installation
 
@@ -22,7 +22,7 @@ A command-line interface application that helps you prioritize tasks through pai
 
 ## Setup
 
-Before first use, run the setup script to configure the Airtable schema and create example tasks:
+Before first use, run the setup script to configure the Airtable schema and create example entries:
 ```bash
 python setup_airtable.py
 ```
@@ -35,16 +35,16 @@ sudo python main.py
 ```
 
 ### Controls
-- Left Arrow: Choose left task as more important
-- Right Arrow: Choose right task as more important
+- Left Arrow: Choose left entry as more important
+- Right Arrow: Choose right entry as more important
 - ESC: Exit application
 
 ## How it Works
 
-1. Tasks are presented in pairs
-2. For each pair, choose which task is more important
-3. Each choice updates the ranking of both tasks
-4. Continue until all tasks are ranked
+1. Entries are presented in pairs
+2. For each pair, choose which entry is more important
+3. Each choice updates the score of both entries
+4. Continue until all entries are ranked
 5. Final ranking is displayed at the end
 
 ## Features
@@ -56,9 +56,9 @@ sudo python main.py
 - Keyboard controls
 - Final ranked summary view
 
-## Adding Tasks
+## Adding Entries
 
-Tasks can be added through Airtable directly, or by modifying the example tasks in `setup_airtable.py`.
+Entries can be added through Airtable directly, or by modifying the example entries in `setup_airtable.py`.
 
 ## Requirements
 

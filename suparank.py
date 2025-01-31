@@ -3,32 +3,29 @@ from rich.console import Console
 from rich.panel import Panel
 from rich import box
 from pyairtable import Api
-from collections import deque
-from operator import itemgetter
 
 
 class Suparank:
     def __init__(self, token):
-        self.tasks = []
+        self.entries = []
         self.current_pair_index = 0
         self.console = Console()
-        self.skipped_tasks = deque()
 
         # Airtable setup
         self.api = Api(token)
         self.table = None
 
         # Merge sort state
-        self.current_level = 0  # Track merge level
-        self.compared_pairs = set()  # Track which pairs we've compared
+        self.current_level = 0
+        self.compared_pairs = set()
 
     def set_base(self, base_id, table_id="tblDb3jQiPGFeDU9e"):
         self.table = self.api.table(base_id, table_id)
-        self.load_tasks()
+        self.load_entries()
 
-    def load_tasks(self):
+    def load_entries(self):
         records = self.table.all()
-        self.tasks = [
+        self.entries = [
             {
                 "id": record["id"],
                 "title": record["fields"].get("Title", "Untitled"),
@@ -41,7 +38,7 @@ class Suparank:
 
     def _generate_merge_pairs(self):
         """Generate pairs following merge sort pattern"""
-        n = len(self.tasks)
+        n = len(self.entries)
         if n < 2:
             return []
 
@@ -62,7 +59,7 @@ class Suparank:
 
     def _get_next_merge_pair(self):
         """Get next pair to compare based on merge sort level"""
-        n = len(self.tasks)
+        n = len(self.entries)
         if n < 2:
             return None
 
@@ -91,19 +88,19 @@ class Suparank:
 
         return None
 
-    def add_task(self, title, description):
+    def add_entry(self, title, description):
         # Create new record in Airtable
         record = self.table.create(
             {"Title": title, "Description": description, "Score": 0}
         )
 
-        task = {
+        entry = {
             "id": record["id"],
             "title": title,
             "description": description,
             "score": 0,
         }
-        self.tasks.append(task)
+        self.entries.append(entry)
 
     def display_current_pair(self):
         os.system("clear")
@@ -114,15 +111,15 @@ class Suparank:
             return False
 
         left_idx, right_idx = pair
-        left_task = self.tasks[left_idx]
-        right_task = self.tasks[right_idx]
+        left_entry = self.entries[left_idx]
+        right_entry = self.entries[right_idx]
 
         self.console.print("\n" * 2)
         self.console.print(
             Panel(
-                f"[bold blue]Which task is more important?[/bold blue]\n\n"
-                + f"[bold green]LEFT:[/bold green] {left_task['title']}\n{left_task['description']}\n\n"
-                + f"[bold red]RIGHT:[/bold red] {right_task['title']}\n{right_task['description']}",
+                f"[bold blue]Which entry is more important?[/bold blue]\n\n"
+                + f"[bold green]LEFT:[/bold green] {left_entry['title']}\n{left_entry['description']}\n\n"
+                + f"[bold red]RIGHT:[/bold red] {right_entry['title']}\n{right_entry['description']}",
                 title=f"Suparank - Level {self.current_level + 1}/{self.total_levels}",
                 subtitle="← (Left is more important) | (Right is more important) →",
                 box=box.ROUNDED,
@@ -136,13 +133,13 @@ class Suparank:
         pair = self._get_next_merge_pair()
         if pair:
             left_idx, right_idx = pair
-            left_task = self.tasks[left_idx]
-            right_task = self.tasks[right_idx]
+            left_entry = self.entries[left_idx]
+            right_entry = self.entries[right_idx]
 
             # Update scores
-            new_score = right_task["score"] + 1
-            left_task["score"] = new_score
-            self.table.update(left_task["id"], {"Score": new_score})
+            new_score = right_entry["score"] + 1
+            left_entry["score"] = new_score
+            self.table.update(left_entry["id"], {"Score": new_score})
 
             # Mark this pair as compared
             self.compared_pairs.add(pair)
@@ -151,28 +148,25 @@ class Suparank:
         pair = self._get_next_merge_pair()
         if pair:
             left_idx, right_idx = pair
-            left_task = self.tasks[left_idx]
-            right_task = self.tasks[right_idx]
+            left_entry = self.entries[left_idx]
+            right_entry = self.entries[right_idx]
 
             # Update scores
-            new_score = left_task["score"] + 1
-            right_task["score"] = new_score
-            self.table.update(right_task["id"], {"Score": new_score})
+            new_score = left_entry["score"] + 1
+            right_entry["score"] = new_score
+            self.table.update(right_entry["id"], {"Score": new_score})
 
             # Mark this pair as compared
             self.compared_pairs.add(pair)
 
     def show_final_ranking(self):
         self.console.print("\n[bold]Final Rankings:[/bold]")
-        # Query Airtable for tasks sorted by score in descending order
-        sorted_tasks = self.table.all(sort=["-Score"])
+        # Query Airtable for entries sorted by score in descending order
+        sorted_entries = self.table.all(sort=["-Score"])
 
-        for i, task in enumerate(sorted_tasks, 1):
-            fields = task["fields"]
+        for i, entry in enumerate(sorted_entries, 1):
+            fields = entry["fields"]
             self.console.print(
                 f"\n{i}. [bold]{fields['Title']}[/bold] (Score: {fields['Score']})"
             )
             self.console.print(f"   {fields['Description']}")
-
-    def get_remaining_count(self):
-        return len(self.skipped_tasks)

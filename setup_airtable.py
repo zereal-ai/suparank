@@ -3,8 +3,8 @@ import os
 from dotenv import load_dotenv
 
 
-def create_example_tasks(table):
-    example_tasks = [
+def create_example_entries(table):
+    example_entries = [
         {
             "Title": "Write Project Documentation",
             "Description": "Create comprehensive documentation for the current project, including setup instructions and API reference.",
@@ -32,13 +32,13 @@ def create_example_tasks(table):
         },
     ]
 
-    print("\nCreating example tasks...")
-    for task in example_tasks:
+    print("\nCreating example entries...")
+    for entry in example_entries:
         try:
-            record = table.create(task)
-            print(f"Created task: {task['Title']}")
+            record = table.create(entry)
+            print(f"Created entry: {entry['Title']}")
         except Exception as e:
-            print(f"Error creating task '{task['Title']}': {e}")
+            print(f"Error creating entry '{entry['Title']}': {e}")
 
 
 def setup_airtable():
@@ -98,10 +98,10 @@ def setup_airtable():
         except Exception as e:
             print(f"Error creating field {name}: {e}")
 
-    # Create example tasks if table is empty
+    # Create example entries if table is empty
     records = table.all()
     if len(records) == 0:
-        create_example_tasks(table)
+        create_example_entries(table)
 
     print("\nSetup complete! Verifying final schema...")
     schema = table.schema()

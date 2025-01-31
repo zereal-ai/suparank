@@ -30,14 +30,14 @@ def main():
     console = Console()
 
     console.print("[bold green]Welcome to Suparank![/bold green]")
-    console.print("Compare tasks and choose which is more important!")
+    console.print("Compare entries and choose which is more important!")
     console.print("Press 'v' to view current rankings, CTRL+C to exit")
     time.sleep(2)
 
     try:
         while True:
             if not app.display_current_pair():
-                console.print("\n[bold green]All tasks have been ranked![/bold green]")
+                console.print("\n[bold green]All entries have been ranked![/bold green]")
                 app.show_final_ranking()
                 break
 
@@ -45,11 +45,11 @@ def main():
             if event.event_type == "down":
                 if event.name == "left":
                     app.choose_left()
-                    console.print("[green]Left task ranked higher! ↑[/green]")
+                    console.print("[green]Left entry ranked higher! ↑[/green]")
                     time.sleep(0.5)
                 elif event.name == "right":
                     app.choose_right()
-                    console.print("[red]Right task ranked higher! ↑[/red]")
+                    console.print("[red]Right entry ranked higher! ↑[/red]")
                     time.sleep(0.5)
                 elif event.name == "v":
                     # Show current rankings
