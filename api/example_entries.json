@@ -1,42 +1,22 @@
 [
     {
-        "Title": "Market Research and Validation",
-        "Description": "Conduct thorough market research, identify target audience, and validate business idea through customer interviews and surveys.",
-        "Rank": null
-    },
-    {
-        "Title": "Business Plan Development",
-        "Description": "Create a comprehensive business plan including financial projections, marketing strategy, and competitive analysis.",
-        "Rank": null
-    },
-    {
-        "Title": "Legal Entity Formation",
-        "Description": "Register the company, obtain necessary licenses, and set up legal structure with proper documentation and agreements.",
-        "Rank": null
+        "Title": "Market Research",
+        "Description": "Conduct thorough market research, identify target audience, and validate business idea through customer interviews and surveys."
     },
     {
         "Title": "MVP Development",
-        "Description": "Build and launch a Minimum Viable Product (MVP) to test core features and gather initial user feedback.",
-        "Rank": null
+        "Description": "Build and launch a Minimum Viable Product (MVP) to test core features and gather initial user feedback."
+    },
+    {
+        "Title": "Legal Setup",
+        "Description": "Register the company, obtain necessary licenses, and set up legal structure with proper documentation and agreements."
     },
     {
         "Title": "Funding Strategy",
-        "Description": "Develop funding strategy, prepare pitch deck, and identify potential investors or funding sources.",
-        "Rank": null
+        "Description": "Develop funding strategy, prepare pitch deck, and identify potential investors or funding sources."
     },
     {
         "Title": "Team Building",
-        "Description": "Recruit core team members, establish roles and responsibilities, and create company culture guidelines.",
-        "Rank": null
-    },
-    {
-        "Title": "Marketing and Branding",
-        "Description": "Develop brand identity, create marketing materials, and establish online presence through website and social media.",
-        "Rank": null
-    },
-    {
-        "Title": "Financial Setup",
-        "Description": "Set up accounting systems, open business bank accounts, and establish financial tracking and reporting processes.",
-        "Rank": null
+        "Description": "Recruit core team members, establish roles and responsibilities, and create company culture guidelines."
     }
 ] 

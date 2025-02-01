@@ -1,131 +1,250 @@
 from pyairtable import Api
 import os
+from dotenv import load_dotenv
 import json
 from pathlib import Path
-from dotenv import load_dotenv
 import requests
+import pprint
 
+# Load environment variables
+load_dotenv()
 
-def load_example_entries():
-    """Load example entries from JSON file"""
-    json_path = Path(__file__).parent / "example_entries.json"
-    with open(json_path, "r") as f:
-        return json.load(f)
+# Get Airtable credentials
+token = os.getenv("AIRTABLE_TOKEN")
+base_id = os.getenv("AIRTABLE_BASE_ID")
 
+if not token or not base_id:
+    raise ValueError("AIRTABLE_TOKEN and AIRTABLE_BASE_ID must be set in environment variables")
 
-def setup_airtable():
-    # Load environment variables
-    load_dotenv()
-    token = os.getenv("AIRTABLE_TOKEN")
-    base_id = os.getenv("AIRTABLE_BASE_ID")
+# Initialize API
+api = Api(token)
 
-    if not token or not base_id:
-        raise ValueError(
-            "AIRTABLE_TOKEN and AIRTABLE_BASE_ID must be set in environment variables"
-        )
+print("Setting up tables...")
 
-    # Initialize Airtable API
-    api = Api(token)
+# Define table schemas
+tables = [
+    {
+        "fields": [
+            {
+                "description": "Title of the item",
+                "name": "Title",
+                "type": "singleLineText"
+            },
+            {
+                "description": "Description of the item",
+                "name": "Description",
+                "type": "multilineText"
+            }
+        ],
+        "description": "Items to be ranked",
+        "name": "Items"
+    },
+    {
+        "fields": [
+            {
+                "description": "Reference to item being split",
+                "name": "ItemID",
+                "type": "singleLineText"
+            },
+            {
+                "description": "Unique ID for this split",
+                "name": "SplitID",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            },
+            {
+                "description": "Depth in recursion",
+                "name": "SplitLevel",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            },
+            {
+                "description": "Which side of the split",
+                "name": "Side",
+                "options": {
+                    "choices": [
+                        {
+                            "name": "left"
+                        },
+                        {
+                            "name": "right"
+                        }
+                    ]
+                },
+                "type": "singleSelect"
+            },
+            {
+                "description": "Which split this came from",
+                "name": "ParentSplitID",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            }
+        ],
+        "description": "Tracks merge sort splits",
+        "name": "Splits"
+    },
+    {
+        "fields": [
+            {
+                "description": "Unique ID for this merge",
+                "name": "MergeID",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            },
+            {
+                "description": "Which split this belongs to",
+                "name": "SplitID",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            },
+            {
+                "description": "Level of the merge",
+                "name": "SplitLevel",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            },
+            {
+                "description": "Position in merged result",
+                "name": "Position",
+                "type": "number",
+                "options": {
+                    "precision": 0
+                }
+            },
+            {
+                "description": "ID of winning item",
+                "name": "WinnerID",
+                "type": "singleLineText"
+            },
+            {
+                "description": "ID of losing item",
+                "name": "LoserID",
+                "type": "singleLineText"
+            },
+            {
+                "description": "When comparison was made",
+                "name": "CompareTime",
+                "type": "dateTime",
+                "options": {
+                    "dateFormat": {
+                        "name": "iso"
+                    },
+                    "timeFormat": {
+                        "name": "24hour"
+                    },
+                    "timeZone": "client"
+                }
+            }
+        ],
+        "description": "Tracks merge sort comparisons and results",
+        "name": "Merges"
+    }
+]
 
-    # Define required fields
-    required_fields = [
-        {"name": "Title", "type": "singleLineText"},
-        {"name": "Description", "type": "multilineText"},
-        {"name": "Rank", "type": "number", "options": {"precision": 0}},
-    ]
+# Create tables
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+# Get existing tables
+response = requests.get(
+    f"https://api.airtable.com/v0/meta/bases/{base_id}/tables",
+    headers=headers
+)
+response.raise_for_status()
+existing_tables = {t["name"]: t for t in response.json()["tables"]}
+
+# Create new tables
+for table in tables:
+    table_name = table["name"]
+    print(f"\nCreating table: {table_name}")
+    
+    if table_name in existing_tables:
+        print(f"\n⚠️  Table '{table_name}' already exists!")
+        print("\nTo ensure the correct schema, please:")
+        print("1. Delete the existing table in Airtable")
+        print("2. Run this script again")
+        print("\nExpected schema:")
+        pprint.pprint(table["fields"], indent=2, width=100)
+        continue
 
     try:
-        # Get metadata about the base
-        headers = {"Authorization": f"Bearer {token}"}
-        response = requests.get(
-            f"https://api.airtable.com/v0/meta/bases/{base_id}/tables", headers=headers
+        response = requests.post(
+            f"https://api.airtable.com/v0/meta/bases/{base_id}/tables",
+            headers=headers,
+            json=table
         )
-        if response.status_code != 200:
-            raise Exception(f"Failed to get tables: {response.text}")
+        response.raise_for_status()
+        print(f"✅ Successfully created table: {table_name}")
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ Error creating table {table_name}: {e}")
+        if response.status_code != 422:  # Only exit if it's not a schema/exists error
+            raise
 
-        tables = response.json().get("tables", [])
-        existing_table = next((t for t in tables if t["name"] == "Entries"), None)
+# Verify setup
+print("\nVerifying setup...")
 
-        if existing_table:
-            print("\nFound existing table 'Entries'")
-            table = api.table(base_id, existing_table["id"])
+# Get final table IDs
+response = requests.get(
+    f"https://api.airtable.com/v0/meta/bases/{base_id}/tables",
+    headers=headers
+)
+response.raise_for_status()
+table_ids = {t["name"]: t["id"] for t in response.json()["tables"]}
 
-            # Check and create missing fields
-            print("\nChecking fields...")
-            existing_fields = {f["name"]: f for f in existing_table["fields"]}
-            missing_fields = []
-            for field in required_fields:
-                if field["name"] not in existing_fields:
-                    missing_fields.append(field)
-                    print(f"- Missing field: {field['name']}")
-                else:
-                    print(f"- Found field: {field['name']}")
+# Check all tables exist
+missing_tables = []
+for table in tables:
+    if table["name"] not in table_ids:
+        missing_tables.append(table["name"])
 
-            # Create any missing fields
-            if missing_fields:
-                print("\nCreating missing fields...")
-                for field in missing_fields:
-                    print(f"- Creating field: {field['name']}")
-                    response = requests.post(
-                        f"https://api.airtable.com/v0/meta/bases/{base_id}/tables/{existing_table['id']}/fields",
-                        headers=headers,
-                        json=field,
-                    )
-                    if response.status_code != 200:
-                        raise Exception(
-                            f"Failed to create field {field['name']}: {response.text}"
-                        )
-                    print(f"  ✓ Created field: {field['name']}")
-            else:
-                print("All required fields exist")
+if missing_tables:
+    print("\n❌ Missing tables:", ", ".join(missing_tables))
+    print("Please delete all tables and run the script again.")
+    exit(1)
 
-            # Check for existing entries
-            existing_entries = table.all()
-            if existing_entries:
-                print(f"\nTable already contains {len(existing_entries)} entries")
-                print("Skipping example entries")
-                return existing_table["id"]
-            else:
-                print("\nTable exists but is empty")
-        else:
-            print("\nCreating new table 'Entries'...")
-            # Create table using metadata API
-            response = requests.post(
-                f"https://api.airtable.com/v0/meta/bases/{base_id}/tables",
-                headers=headers,
-                json={
-                    "name": "Entries",
-                    "description": "Entries to be ranked",
-                    "fields": required_fields,
-                },
-            )
-            if response.status_code != 200:
-                raise Exception(f"Failed to create table: {response.text}")
+# Initialize Items table
+items_table = api.table(base_id, table_ids["Items"])
 
-            table_data = response.json()
-            table = api.table(base_id, table_data["id"])
-            print("✓ Table created successfully")
+print("\nLoading example entries...")
 
-        # Load and add example entries if table is empty
-        print("\nAdding example entries to empty table...")
-        example_entries = load_example_entries()
-        records = table.batch_create(example_entries)
-        for record in records:
-            print(f"✓ Created: {record['fields']['Title']}")
+# Clear existing items
+existing_records = items_table.all()
+for record in existing_records:
+    items_table.delete(record["id"])
 
-        return table.id if existing_table else table_data["id"]
+# Add example items
+example_file = Path(__file__).parent / "example_entries.json"
+with example_file.open() as f:
+    example_entries = json.load(f)
 
-    except Exception as e:
-        print(f"\nError in setup: {str(e)}")
-        return None
+for entry in example_entries:
+    items_table.create({
+        "Title": entry["Title"],
+        "Description": entry["Description"]
+    })
 
+# Verify items were loaded
+loaded_items = items_table.all()
+if len(loaded_items) == len(example_entries):
+    print(f"✅ Successfully loaded {len(loaded_items)} items:")
+    for item in loaded_items:
+        print(f"  - {item['fields']['Title']}")
+else:
+    print("❌ Error: Not all items were loaded")
+    exit(1)
 
-if __name__ == "__main__":
-    print("\nStarting Suparank setup...")
-    table_id = setup_airtable()
-    if table_id:
-        print("\nSetup complete!")
-        print("Add this to your .env file if not already present:")
-        print(f"AIRTABLE_TABLE_ID={table_id}")
-    else:
-        print("\nSetup failed. Please check the errors above.")
+print("\n✨ Setup complete! All tables created and example entries loaded.")
