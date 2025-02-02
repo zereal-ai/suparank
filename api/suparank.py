@@ -1,360 +1,248 @@
-from pyairtable import Table
+from pyairtable import Api
 from typing import List, Dict, Optional, Tuple
 import math
-import time
+from datetime import datetime
 
 
 class Suparank:
     def __init__(self, token: str):
-        self.entries: List[Dict] = []
         self.token = token
-        self.table = None
-        self.compared_pairs = set()
-        self.current_level = 0
-        self.total_levels = 0
-        self.debug_output = []
+        self.api = Api(token)
+        self.items_table = None
+        self.splits_table = None
+        self.merges_table = None
+        self.items = []
 
-    def set_base(self, base_id: str, table_id: str = "tblDb3jQiPGFeDU9e") -> None:
-        self.table = Table(self.token, base_id, table_id)
-        self.load_entries()
-        self._init_merge_sort()
+    def set_base(self, base_id: str) -> None:
+        """Initialize tables and load items"""
+        # Get table IDs from base
+        response = self.api.get(
+            f"https://api.airtable.com/v0/meta/bases/{base_id}/tables"
+        )
+        tables = {t["name"]: t["id"] for t in response["tables"]}
+        
+        # Initialize table connections
+        self.items_table = self.api.table(base_id, tables["Items"])
+        self.splits_table = self.api.table(base_id, tables["Splits"])
+        self.merges_table = self.api.table(base_id, tables["Merges"])
+        
+        # Load items
+        self.load_items()
 
-    def load_entries(self) -> None:
-        """Load entries from Airtable with detailed debug logging"""
-        self.debug_output = []  # Clear previous debug output
-        self.debug_output.append("\n=== Loading entries from Airtable ===")
-
-        # Add cache-busting timestamp to force fresh data
-        timestamp = int(time.time() * 1000)
-        self.debug_output.append(f"\nFetching records at timestamp: {timestamp}")
-
-        # Use a simple formula that's always true to ensure we get all records
-        records = self.table.all(formula="OR(1, 0)")
-
-        self.debug_output.append(f"\nReceived {len(records)} records from Airtable")
-
-        self.debug_output.append("\nRaw Airtable records:")
-        for record in records:
-            fields_str = ", ".join(f"{k}: {v}" for k, v in record["fields"].items())
-            self.debug_output.append(f"ID: {record['id']}, Fields: {fields_str}")
-
-        # Clear the entries list before repopulating
-        self.entries = []
-
-        # Populate entries from records
-        self.entries = [
+    def load_items(self) -> None:
+        """Load items from Airtable"""
+        records = self.items_table.all()
+        self.items = [
             {
                 "id": record["id"],
                 "title": record["fields"].get("Title", "Untitled"),
-                "description": record["fields"].get("Description", ""),
-                "rank": record["fields"].get(
-                    "Rank"
-                ),  # Rank can be None (unranked) or int
+                "description": record["fields"].get("Description", "")
             }
             for record in records
         ]
-
-        self.debug_output.append("\nProcessed entries:")
-        for entry in self.entries:
-            self.debug_output.append(
-                f"ID: {entry['id']}, Title: {entry['title']}, Rank: {entry['rank']}"
-            )
-
-        self.debug_output.append("\n=== Finished loading entries ===\n")
+        
+        # Check if we need to initialize a ranking session
+        splits = self.splits_table.all()
+        if not splits and len(self.items) >= 2:
+            self._init_merge_sort()
 
     def _init_merge_sort(self) -> None:
-        """Initialize merge sort parameters"""
-        n = len(self.entries)
-        if n < 2:
+        """Start a new merge sort session"""
+        if len(self.items) < 2:
             return
 
-        self.total_levels = math.ceil(math.log2(n))
-        self.current_level = 0
-        self.compared_pairs.clear()
-        self.debug_output = []
-        self.debug_output.append(
-            f"Initialized merge sort: {n} items, {self.total_levels} levels needed"
-        )
+        # Clear existing splits and merges
+        for record in self.splits_table.all():
+            self.splits_table.delete(record["id"])
+        for record in self.merges_table.all():
+            self.merges_table.delete(record["id"])
 
-    def _has_unranked_items(self) -> bool:
-        """Check if there are any unranked items"""
-        return any(entry["rank"] is None for entry in self.entries)
+        # Create initial splits at level 0
+        for i, item in enumerate(self.items):
+            self.splits_table.create({
+                "ItemID": item["id"],
+                "SplitID": i,
+                "SplitLevel": 0,
+                "Side": "left" if i % 2 == 0 else "right",
+                "ParentSplitID": i // 2
+            })
 
     def get_next_pair(self) -> Optional[Tuple[Dict, Dict]]:
-        """Get next pair to compare based on merge sort level"""
-        self.debug_output = []
-
-        if len(self.entries) < 2:
-            self.debug_output.append("Not enough entries for comparison")
+        """Get next pair of items to compare"""
+        if len(self.items) < 2:
             return None
 
-        # Check if all items are already ranked
-        all_ranked = all(entry["rank"] is not None for entry in self.entries)
-        if all_ranked:
-            self.debug_output.append("All items are already ranked. Please start a new ranking session.")
-            return None
-
-        # If we've completed all levels but still have unranked items, reset level
-        if self.current_level >= self.total_levels:
-            if self._has_unranked_items():
-                self.debug_output.append(
-                    "Resetting to level 0 to handle remaining unranked items"
-                )
-                self.compared_pairs.clear()
-                self.current_level = 0
-            else:
-                self.debug_output.append("All items have been ranked!")
+        # Find lowest level with unmerged pairs
+        splits = self.splits_table.all()
+        if not splits:
+            # Initialize merge sort if not already done
+            self._init_merge_sort()
+            splits = self.splits_table.all()
+            if not splits:  # If still no splits, we can't proceed
                 return None
 
-        n = len(self.entries)
-        group_size = 2**self.current_level
+        # Group splits by level
+        splits_by_level = {}
+        for split in splits:
+            level = split["fields"]["SplitLevel"]
+            splits_by_level.setdefault(level, []).append(split)
 
-        self.debug_output.append(
-            f"\nLevel {self.current_level}/{self.total_levels-1}, Group size: {group_size}"
-        )
+        if not splits_by_level:
+            return None
 
-        # Iterate through groups at current level
-        for group_start in range(0, n, group_size * 2):
-            left_start = group_start
-            mid = min(group_start + group_size, n)
-            right_start = mid
-            right_end = min(group_start + group_size * 2, n)
+        min_level = min(splits_by_level.keys())
+        level_splits = splits_by_level[min_level]
 
-            self.debug_output.append(
-                f"Group: {group_start}-{right_end}, Split at: {mid}"
+        # Find adjacent pairs at this level
+        for i in range(0, len(level_splits), 2):
+            if i + 1 >= len(level_splits):
+                continue
+
+            left_split = level_splits[i]
+            right_split = level_splits[i + 1]
+
+            # Check if this pair has been compared
+            existing_merge = self.merges_table.all(
+                formula=f"AND(SplitID={left_split['fields']['SplitID']}, SplitLevel={min_level})"
             )
+            if existing_merge:
+                continue
 
-            # Compare elements from left and right halves
-            left = left_start
-            right = right_start
+            # Get the actual items
+            left_item = next(item for item in self.items if item["id"] == left_split["fields"]["ItemID"])
+            right_item = next(item for item in self.items if item["id"] == right_split["fields"]["ItemID"])
 
-            while left < mid and right < right_end:
-                pair = (min(left, right), max(left, right))
-                if pair not in self.compared_pairs:
-                    self.debug_output.append(
-                        f"Found pair to compare: {self.entries[left]['title']} vs {self.entries[right]['title']}"
-                    )
-                    return self.entries[left], self.entries[right]
-                left += 1
-                right += 1
+            return left_item, right_item
 
-        self.current_level += 1
-        self.debug_output.append(f"Moving to level {self.current_level}")
+        # If no pairs found at this level, promote completed pairs to next level
+        self._promote_level(min_level)
         return self.get_next_pair()
 
+    def _promote_level(self, level: int) -> None:
+        """Promote merged pairs to next level"""
+        # Get all merges at this level
+        merges = self.merges_table.all(
+            formula=f"SplitLevel={level}"
+        )
+
+        # Group merges by parent split
+        merges_by_parent = {}
+        for merge in merges:
+            parent_id = merge["fields"]["SplitID"]
+            merges_by_parent.setdefault(parent_id, []).append(merge)
+
+        # Create new splits at next level
+        new_split_id = 0
+        for parent_id, parent_merges in merges_by_parent.items():
+            # Sort merges by position
+            parent_merges.sort(key=lambda m: m["fields"]["Position"])
+            
+            # Create new splits for merged items
+            for i, merge in enumerate(parent_merges):
+                self.splits_table.create({
+                    "ItemID": merge["fields"]["WinnerID"],
+                    "SplitID": new_split_id,
+                    "SplitLevel": level + 1,
+                    "Side": "left" if i % 2 == 0 else "right",
+                    "ParentSplitID": new_split_id // 2
+                })
+            new_split_id += 1
+
     def choose_winner(self, winner_id: str, loser_id: str) -> None:
-        """Update ranks when a winner is chosen"""
-        self.debug_output = []
-        winner = next(entry for entry in self.entries if entry["id"] == winner_id)
-        loser = next(entry for entry in self.entries if entry["id"] == loser_id)
-
-        self.debug_output.append(f"\nProcessing winner choice:")
-        self.debug_output.append(
-            f"Winner: {winner['title']} (current rank: {winner['rank']})"
+        """Record user's choice between two items"""
+        # Find the splits for these items
+        winner_split = next(
+            split for split in self.splits_table.all()
+            if split["fields"]["ItemID"] == winner_id
         )
-        self.debug_output.append(
-            f"Loser: {loser['title']} (current rank: {loser['rank']})"
+        loser_split = next(
+            split for split in self.splits_table.all()
+            if split["fields"]["ItemID"] == loser_id
         )
 
-        # Mark this pair as compared
-        winner_idx = self.entries.index(winner)
-        loser_idx = self.entries.index(loser)
-        self.compared_pairs.add(
-            (min(winner_idx, loser_idx), max(winner_idx, loser_idx))
+        # Record the merge
+        split_level = winner_split["fields"]["SplitLevel"]
+        split_id = winner_split["fields"]["ParentSplitID"]
+
+        # Get position for this merge
+        existing_merges = self.merges_table.all(
+            formula=f"AND(SplitID={split_id}, SplitLevel={split_level})"
         )
+        position = len(existing_merges)
 
-        # Get all entries sorted by current rank (None last)
-        sorted_entries = sorted(
-            self.entries,
-            key=lambda x: (
-                x["rank"] is None,
-                x["rank"] if x["rank"] is not None else float("inf"),
-            ),
-        )
+        # Create merge record
+        self.merges_table.create({
+            "MergeID": len(existing_merges),
+            "SplitID": split_id,
+            "SplitLevel": split_level,
+            "Position": position,
+            "WinnerID": winner_id,
+            "LoserID": loser_id,
+            "CompareTime": datetime.now().isoformat()
+        })
 
-        if winner["rank"] is None and loser["rank"] is None:
-            # Both unranked: winner gets rank 1, loser gets rank 2
-            self.debug_output.append("Both items unranked, assigning initial ranks")
-            winner["rank"] = 1
-            loser["rank"] = 2
-        elif winner["rank"] is None:
-            # Winner unranked: insert before loser
-            loser_rank = loser["rank"]
-            if loser_rank is not None:  # Safety check
-                self.debug_output.append(
-                    f"Winner unranked, inserting at rank {loser_rank}"
-                )
-                for entry in sorted_entries:
-                    if entry["rank"] is not None and entry["rank"] >= loser_rank:
-                        entry["rank"] += 1
-                        self.table.update(entry["id"], {"Rank": entry["rank"]})
-                winner["rank"] = loser_rank
-        elif loser["rank"] is None:
-            # Loser unranked: insert after winner
-            winner_rank = winner["rank"]
-            if winner_rank is not None:  # Safety check
-                self.debug_output.append(
-                    f"Loser unranked, inserting at rank {winner_rank + 1}"
-                )
-                loser["rank"] = winner_rank + 1
-                for entry in sorted_entries:
-                    if entry["rank"] is not None and entry["rank"] > winner_rank:
-                        entry["rank"] += 1
-                        self.table.update(entry["id"], {"Rank": entry["rank"]})
-        else:
-            # Both ranked: if winner's rank > loser's rank, swap them
-            if winner["rank"] > loser["rank"]:
-                self.debug_output.append(
-                    f"Swapping ranks: winner {winner['rank']} -> {loser['rank']}, loser {loser['rank']} -> {winner['rank']}"
-                )
-                old_winner_rank = winner["rank"]
-                old_loser_rank = loser["rank"]
-                winner["rank"] = old_loser_rank
-
-                # Shift all ranks between loser and winner up by 1
-                for entry in sorted_entries:
-                    if entry["id"] not in [winner_id, loser_id]:
-                        if (
-                            entry["rank"] is not None
-                            and old_loser_rank <= entry["rank"] < old_winner_rank
-                        ):
-                            entry["rank"] += 1
-                            self.table.update(entry["id"], {"Rank": entry["rank"]})
-
-                loser["rank"] = old_winner_rank
-
-        # Ensure ranks are consecutive integers starting from 1
-        ranked_entries = [e for e in sorted_entries if e["rank"] is not None]
-        ranked_entries.sort(
-            key=lambda x: x["rank"] if x["rank"] is not None else float("inf")
-        )
-
-        self.debug_output.append("\nFinalizing ranks:")
-        for i, entry in enumerate(ranked_entries, 1):
-            if entry["rank"] != i:
-                old_rank = entry["rank"]
-                entry["rank"] = i
-                self.table.update(entry["id"], {"Rank": i})
-                self.debug_output.append(
-                    f"Adjusted {entry['title']}: {old_rank} -> {i}"
-                )
-
-        # Update the winner and loser in Airtable
-        self.table.update(winner["id"], {"Rank": winner["rank"]})
-        self.table.update(loser["id"], {"Rank": loser["rank"]})
-
-        self.debug_output.append(f"\nFinal result:")
-        self.debug_output.append(f"Winner {winner['title']} (rank: {winner['rank']})")
-        self.debug_output.append(f"Loser {loser['title']} (rank: {loser['rank']})")
+        # Delete the splits that were merged
+        self.splits_table.delete(winner_split["id"])
+        self.splits_table.delete(loser_split["id"])
 
     def get_rankings(self) -> List[Dict]:
-        """Get current rankings sorted by rank (None last)"""
-        self.debug_output = []
+        """Get current rankings based on merge history"""
+        # Get all merges
+        merges = self.merges_table.all()
+        if not merges:
+            return self.items
 
-        # Sort entries: ranked items first (by rank), then unranked
-        rankings = sorted(
-            self.entries,
-            key=lambda x: (
-                x["rank"] is None,
-                x["rank"] if x["rank"] is not None else float("inf"),
-            ),
-        )
+        # Build ranking from merge history
+        rankings = []
+        seen_items = set()
 
-        self.debug_output.append("\nCurrent Rankings:")
-        for i, r in enumerate(rankings):
-            rank_str = str(r["rank"]) if r["rank"] is not None else "unranked"
-            self.debug_output.append(f"{i+1}. {r['title']} (rank: {rank_str})")
+        # Process merges in chronological order
+        sorted_merges = sorted(merges, key=lambda m: m["fields"]["CompareTime"])
+        
+        for merge in sorted_merges:
+            winner_id = merge["fields"]["WinnerID"]
+            loser_id = merge["fields"]["LoserID"]
 
-        if self._has_unranked_items():
-            self.debug_output.append("\nWARNING: Some items are still unranked")
+            # Add winner if not seen
+            if winner_id not in seen_items:
+                winner = next(item for item in self.items if item["id"] == winner_id)
+                rankings.append(winner)
+                seen_items.add(winner_id)
+
+            # Add loser if not seen
+            if loser_id not in seen_items:
+                loser = next(item for item in self.items if item["id"] == loser_id)
+                rankings.append(loser)
+                seen_items.add(loser_id)
+
+        # Add any remaining items
+        for item in self.items:
+            if item["id"] not in seen_items:
+                rankings.append(item)
+
+        # Calculate ranks based on final position
+        # Only assign ranks if all items have been compared
+        if len(rankings) == len(self.items):
+            for i, item in enumerate(rankings, start=1):
+                item["rank"] = i
 
         return rankings
 
-    def add_entry(self, title: str, description: str) -> Dict:
-        """Add a new unranked entry"""
-        record = self.table.create(
-            {
-                "Title": title,
-                "Description": description,
-            }  # No rank field = NULL in Airtable
-        )
+    def reset_ranking(self) -> None:
+        """Start a new ranking session"""
+        self._init_merge_sort()
 
-        entry = {
+    def add_item(self, title: str, description: str) -> Dict:
+        """Add a new item"""
+        record = self.items_table.create({
+            "Title": title,
+            "Description": description
+        })
+        
+        item = {
             "id": record["id"],
             "title": title,
-            "description": description,
-            "rank": None,
+            "description": description
         }
-        self.entries.append(entry)
-        self._init_merge_sort()
-        return entry
-
-    def get_debug_info(self) -> List[str]:
-        """Get debug information about the merge sort process"""
-        return self.debug_output
-
-    def reset_ranking(self) -> None:
-        """Reset all ranks to None and reinitialize merge sort"""
-        self.debug_output = []
-        self.debug_output.append("Starting rank reset...")
-
-        # First load fresh data to ensure we have all records
-        self.load_entries()
-
-        if len(self.entries) < 2:
-            raise ValueError("Need at least 2 entries to start ranking")
-
-        # Prepare records for batch update
-        records = [
-            {"id": entry["id"], "fields": {"Rank": None}} for entry in self.entries
-        ]
-
-        try:
-            # Update records in chunks of 10 (Airtable's limit)
-            CHUNK_SIZE = 10
-            for i in range(0, len(records), CHUNK_SIZE):
-                chunk = records[i : i + CHUNK_SIZE]
-                self.debug_output.append(
-                    f"Batch updating records {i+1} to {i+len(chunk)}"
-                )
-                self.table.batch_update(chunk)
-                # Small delay between chunks to avoid rate limiting
-                if i + CHUNK_SIZE < len(records):
-                    time.sleep(0.2)
-
-            # Clear ranks in local state
-            for entry in self.entries:
-                entry["rank"] = None
-
-            self.debug_output.append("Successfully cleared all ranks")
-        except Exception as e:
-            self.debug_output.append(f"Error in batch update: {str(e)}")
-            raise ValueError(f"Failed to clear ranks: {str(e)}")
-
-        # Force a delay to ensure Airtable updates are processed
-        time.sleep(1)
-
-        # Reload entries to verify changes
-        self.load_entries()
-
-        # Verify all ranks are None
-        any_ranked = any(entry["rank"] is not None for entry in self.entries)
-        if any_ranked:
-            self.debug_output.append(
-                "WARNING: Some entries still have ranks after reset!"
-            )
-            for entry in self.entries:
-                if entry["rank"] is not None:
-                    self.debug_output.append(
-                        f"Entry still ranked: {entry['title']} (rank: {entry['rank']})"
-                    )
-            raise ValueError("Failed to reset all ranks")
-
-        self.debug_output.append("Verified all entries are unranked")
-
-        # Reset merge sort state
-        self.current_level = 0
-        self.compared_pairs.clear()
-        self.total_levels = math.ceil(math.log2(len(self.entries)))
-
-        self.debug_output.append("Rankings reset complete")
+        self.items.append(item)
+        return item
