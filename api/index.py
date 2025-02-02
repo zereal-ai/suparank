@@ -11,9 +11,11 @@ load_dotenv()
 AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_SESSIONS_TABLE_ID = os.getenv("AIRTABLE_SESSIONS_TABLE_ID")
+AIRTABLE_ITEMS_TABLE_ID = os.getenv("AIRTABLE_ITEMS_TABLE_ID")
 
-# Initialize the Airtable Table object
-table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_SESSIONS_TABLE_ID)
+# Initialize the Airtable Table objects
+sessions_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_SESSIONS_TABLE_ID)
+items_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_ITEMS_TABLE_ID)
 
 # Initialize the FastAPI app
 app = FastAPI(title="Interactive Merge Sort Service")
@@ -36,12 +38,16 @@ class StartSessionInput(BaseModel):
 class CompareInput(BaseModel):
     choice: str  # Expected to be "A" or "B"
 
+class ItemInput(BaseModel):
+    title: str
+    description: str | None = None
+
 # ---------------------
 # Helper functions to get/update session state from Airtable
 # ---------------------
 def get_session_state(session_id: str) -> dict:
     try:
-        record = table.get(session_id)
+        record = sessions_table.get(session_id)
         state_json = record["fields"].get("state")
         if state_json is None:
             raise ValueError("Session state not found in record.")
@@ -52,9 +58,53 @@ def get_session_state(session_id: str) -> dict:
 
 def update_session_state(session_id: str, state: dict):
     try:
-        table.update(session_id, {"state": json.dumps(state)})
+        sessions_table.update(session_id, {"state": json.dumps(state)})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update session: {e}")
+
+# ---------------------
+# Items API Endpoints
+# ---------------------
+@app.get("/api/items")
+def get_items():
+    """Get all items from Airtable"""
+    try:
+        records = items_table.all()
+        return [
+            {
+                "id": record["id"],
+                "title": record["fields"].get("title", ""),
+                "description": record["fields"].get("description", "")
+            }
+            for record in records
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch items: {e}")
+
+@app.post("/api/items")
+def create_item(item: ItemInput):
+    """Create a new item in Airtable"""
+    try:
+        fields = {"title": item.title}
+        if item.description:
+            fields["description"] = item.description
+        record = items_table.create(fields)
+        return {
+            "id": record["id"],
+            "title": record["fields"].get("title", ""),
+            "description": record["fields"].get("description", "")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create item: {e}")
+
+@app.delete("/api/items/{item_id}")
+def delete_item(item_id: str):
+    """Delete an item from Airtable"""
+    try:
+        items_table.delete(item_id)
+        return {"message": "Item deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete item: {e}")
 
 # ---------------------
 # Merge Sort State Helpers
@@ -126,7 +176,7 @@ def start_session(input_data: StartSessionInput):
         "status": "in_progress"
     }
     # Create a new record in Airtable; Airtable will generate an ID for the session.
-    record = table.create({"state": json.dumps(state)})
+    record = sessions_table.create({"state": json.dumps(state)})
     session_id = record["id"]
     return {"session_id": session_id}
 

@@ -7,6 +7,54 @@ const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-store'
 };
 
+export interface Item {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+/**
+ * Fetches items from Airtable
+ */
+export async function getItems(): Promise<Item[]> {
+  const response = await fetch(`${API_URL}/items`, {
+    method: 'GET',
+    headers: NO_CACHE_HEADERS
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch items: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Deletes an item from Airtable
+ */
+export async function deleteItem(itemId: string): Promise<void> {
+  const response = await fetch(`${API_URL}/items/${itemId}`, {
+    method: 'DELETE',
+    headers: NO_CACHE_HEADERS
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to delete item: ${response.statusText}`);
+  }
+}
+
+/**
+ * Adds a new item to Airtable
+ */
+export async function addItem(title: string, description?: string): Promise<Item> {
+  const response = await fetch(`${API_URL}/items`, {
+    method: 'POST',
+    headers: NO_CACHE_HEADERS,
+    body: JSON.stringify({ title, description })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to add item: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 /**
  * Starts a new merge sort session.
  * Expects an array of strings as items.
