@@ -108,17 +108,18 @@ export default function Home() {
           {!loading && pairItems && (
             <ComparisonSection 
               currentPair={{
-                item_a: pairItems.item_a?.title || '',
-                item_b: pairItems.item_b?.title || ''
+                item_a: pairItems.item_a || { title: '', description: '' },
+                item_b: pairItems.item_b || { title: '', description: '' }
               }} 
               onChoice={handleChoice} 
             />
           )}
 
           <RankingsList 
-            items={sortedItems || items} 
+            items={items} 
             loading={itemsLoading} 
             onItemDeleted={fetchItems}
+            sortedList={sortedList}
           />
         </div>
       </main>
