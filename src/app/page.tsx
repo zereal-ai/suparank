@@ -1,110 +1,73 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Item, ComparisonPair, getRankings, getNextPair, resetRanking } from './api';
-import { AddItemForm } from './components/AddItemForm';
+import { startSortSession, getNextPair, postComparison } from './api';
 import { ComparisonSection } from './components/ComparisonSection';
-import { RankingsList } from './components/RankingsList';
 
 export default function Home() {
-  const [items, setItems] = useState<Item[]>([]);
-  const [currentPair, setCurrentPair] = useState<ComparisonPair | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Initial data loading
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [currentPair, setCurrentPair] = useState<{ item_a: string; item_b: string } | null>(null);
+  const [sortedList, setSortedList] = useState<string[] | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  
   useEffect(() => {
-    loadRankings();
-    loadNextPair();
-  }, []);
-
-  async function loadRankings() {
-    try {
-      const rankings = await getRankings();
-      setItems(rankings);
-    } catch (error) {
-      console.error('Failed to load rankings:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadNextPair() {
-    try {
-      const pair = await getNextPair();
-      setCurrentPair(pair);
-    } catch (error) {
-      console.error('Failed to load next pair:', error);
-      setCurrentPair(null);
-    }
-  }
-
-  async function handleWinnerChosen() {
-    await loadRankings();
-    await loadNextPair();
-  }
-
-  async function handleReset() {
-    try {
+    async function initSession() {
       setLoading(true);
-      setCurrentPair(null);
-      
-      // Force a delay to ensure visual feedback
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Call the reset endpoint
-      await resetRanking();
-      
-      // Get fresh data
-      const rankings = await getRankings();
-      setItems(rankings);
-      
-      // Keep trying to get a new pair until we succeed
-      let attempts = 0;
-      let pair = null;
-      while (attempts < 3) {
-        pair = await getNextPair();
-        if (pair && !pair.complete) {
-          break;
+      try {
+        // Hardcoded initial items for the merge sort session
+        const items = ['three', 'four', 'two', 'one', 'five'];
+        const sId = await startSortSession(items);
+        setSessionId(sId);
+        const pair = await getNextPair(sId);
+        if (pair.message && pair.message === 'Sorting complete.') {
+          setSortedList(pair.sorted_list);
+        } else {
+          setCurrentPair(pair);
         }
-        await new Promise(resolve => setTimeout(resolve, 500)); // Wait before retrying
-        attempts++;
+      } catch (error) {
+        console.error('Error initializing session:', error);
       }
-      
-      if (!pair || pair.complete) {
-        throw new Error('No pairs available after reset');
-      }
-      
-      setCurrentPair(pair);
-    } catch (error) {
-      console.error('Failed to restart ranking:', error);
-      setCurrentPair(null);
-    } finally {
       setLoading(false);
     }
+    initSession();
+  }, []);
+  
+  async function handleChoice(choice: 'A' | 'B') {
+    if (!sessionId) return;
+    setLoading(true);
+    try {
+      await postComparison(sessionId, choice);
+      const pair = await getNextPair(sessionId);
+      if (pair.message && pair.message === 'Sorting complete.') {
+        setSortedList(pair.sorted_list);
+        setCurrentPair(null);
+      } else {
+        setCurrentPair(pair);
+      }
+    } catch (error) {
+      console.error('Error processing choice:', error);
+    }
+    setLoading(false);
   }
-
-  async function handleItemAdded() {
-    await loadRankings();
-    await loadNextPair();
-  }
-
+  
   return (
-    <div className="min-h-screen bg-white">
-      <main className="max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold mb-12 text-gray-900">
-          Suparank
-        </h1>
-        
-        <div className="space-y-12">
-          <AddItemForm onItemAdded={handleItemAdded} />
-          <ComparisonSection 
-            currentPair={currentPair}
-            items={items}
-            onWinnerChosen={handleWinnerChosen}
-            onReset={handleReset}
-          />
-          <RankingsList items={items} loading={loading} />
-        </div>
+    <div className='min-h-screen bg-white'>
+      <main className='max-w-2xl mx-auto px-4 py-8'>
+        <h1 className='text-2xl font-bold mb-12 text-gray-900'>Suparank</h1>
+        {loading && <p>Loading...</p>}
+        {!loading && sortedList && (
+          <div>
+            <h2 className='text-xl font-semibold'>Sorted List:</h2>
+            <ol className='list-decimal ml-5'>
+              {sortedList.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {!loading && currentPair && (
+          <ComparisonSection currentPair={currentPair} onChoice={handleChoice} />
+        )}
       </main>
     </div>
   );

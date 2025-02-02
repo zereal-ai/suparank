@@ -1,85 +1,217 @@
+import os
+import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Dict
-import os
+from pyairtable import Table
 from dotenv import load_dotenv
-from .suparank import Suparank
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
 
-app = FastAPI()
+# Load environment variables from .env
+load_dotenv()
+AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
+AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
+AIRTABLE_SESSIONS_TABLE_ID = os.getenv("AIRTABLE_SESSIONS_TABLE_ID")
 
-# Add CORS middleware with more specific settings
+# Initialize the Airtable Table object
+table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_SESSIONS_TABLE_ID)
+
+# Initialize the FastAPI app
+app = FastAPI(title="Interactive Merge Sort Service")
+
+# Add CORS middleware to allow all origins and methods (including OPTIONS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://localhost:3000"],  # Add your frontend URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
-# Load environment variables
-load_dotenv(override=True)
+# ---------------------
+# Pydantic models
+# ---------------------
+class StartSessionInput(BaseModel):
+    items: list[str]  # For example: ["three", "four", "two", "one", "five"]
 
-# Initialize Suparank
-token = os.getenv("AIRTABLE_TOKEN")
-base_id = os.getenv("AIRTABLE_BASE_ID")
+class CompareInput(BaseModel):
+    choice: str  # Expected to be "A" or "B"
 
-if not token or not base_id:
-    raise ValueError("AIRTABLE_TOKEN and AIRTABLE_BASE_ID must be set in environment variables")
-
-suparank = Suparank(token)
-suparank.set_base(base_id)
-
-
-class EntryCreate(BaseModel):
-    title: str
-    description: str
-
-
-class ComparisonChoice(BaseModel):
-    winner_id: str
-    loser_id: str
-
-
-@app.get("/api/next-pair")
-async def get_next_pair():
-    pair = suparank.get_next_pair()
-    if not pair:
-        return {"complete": True}
-    return {"pair": list(pair), "complete": False}
-
-
-@app.post("/api/choose")
-async def choose_winner(choice: ComparisonChoice):
+# ---------------------
+# Helper functions to get/update session state from Airtable
+# ---------------------
+def get_session_state(session_id: str) -> dict:
     try:
-        suparank.choose_winner(choice.winner_id, choice.loser_id)
-        return {"message": "Choice recorded successfully"}
+        record = table.get(session_id)
+        state_json = record["fields"].get("state")
+        if state_json is None:
+            raise ValueError("Session state not found in record.")
+        return json.loads(state_json)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=404, detail=f"Session not found: {e}")
 
 
-@app.get("/api/rankings")
-async def get_rankings():
-    # Force reload items from Airtable to ensure fresh data
-    suparank.load_items()
-    rankings = suparank.get_rankings()
-    return {"rankings": rankings}
-
-
-@app.post("/api/entries")
-async def add_entry(entry: EntryCreate):
+def update_session_state(session_id: str, state: dict):
     try:
-        new_entry = suparank.add_item(entry.title, entry.description)
-        return {"entry": new_entry}
+        table.update(session_id, {"state": json.dumps(state)})
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to update session: {e}")
+
+# ---------------------
+# Merge Sort State Helpers
+# ---------------------
+def initiate_merge_task(state: dict) -> dict:
+    """
+    If no merge is in progress and there are at least two sublists in the work_list,
+    remove the first two and create a current merge task.
+    """
+    if state["current_task"] is None and len(state["work_list"]) >= 2:
+        left = state["work_list"].pop(0)
+        right = state["work_list"].pop(0)
+        state["current_task"] = {
+            "left": left,
+            "right": right,
+            "i": 0,
+            "j": 0,
+            "merged": []
+        }
+    return state
 
 
-@app.post("/api/reset")
-async def reset_rankings():
-    try:
-        suparank.reset_ranking()
-        return {"message": "Rankings reset successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+def complete_merge_task(state: dict) -> dict:
+    """
+    When one side of the current merge task is exhausted, append the remainder,
+    push the merged result back into the work_list, and clear the current_task.
+    If only one sublist remains in work_list, mark the session as complete.
+    """
+    task = state["current_task"]
+    left = task["left"]
+    right = task["right"]
+    i = task["i"]
+    j = task["j"]
+    merged = task["merged"]
+
+    # Append any remaining items from left or right.
+    if i < len(left):
+        merged.extend(left[i:])
+    if j < len(right):
+        merged.extend(right[j:])
+
+    # Push the merged list to the end of the work_list.
+    state["work_list"].append(merged)
+    state["current_task"] = None
+
+    # If there is only one sublist remaining, the sort is complete.
+    if len(state["work_list"]) == 1:
+        state["status"] = "completed"
+    return state
+
+# ---------------------
+# API Endpoints
+# ---------------------
+@app.post("/api/sort/start")
+def start_session(input_data: StartSessionInput):
+    """
+    Start a new merge sort session. The input list is stored as references to the items (item IDs) in the session state,
+    and a "work_list" is created as a list of single-item lists containing these item IDs.
+    """
+    items = input_data.items
+    if not items:
+        raise HTTPException(status_code=400, detail="List cannot be empty.")
+
+    # Initial state: each provided item (which should be an item record ID from the Items table) becomes a one-element sublist.
+    state = {
+        "item_refs": items,
+        "work_list": [[item] for item in items],
+        "current_task": None,
+        "status": "in_progress"
+    }
+    # Create a new record in Airtable; Airtable will generate an ID for the session.
+    record = table.create({"state": json.dumps(state)})
+    session_id = record["id"]
+    return {"session_id": session_id}
+
+
+@app.get("/api/sort/{session_id}/next")
+def get_next_comparison(session_id: str):
+    """
+    Returns the next pair of items to compare.
+    If no current merge task exists, one is initiated (if possible).
+    If one side of the merge is exhausted, completes the task and moves on.
+    """
+    state = get_session_state(session_id)
+    if state["status"] == "completed":
+        return {"message": "Sorting complete.", "sorted_list": state["work_list"][0]}
+
+    # Ensure there is an active merge task.
+    state = initiate_merge_task(state)
+    if state["current_task"] is None:
+        # If no merge task can be initiated, sorting must be complete.
+        state["status"] = "completed"
+        update_session_state(session_id, state)
+        return {"message": "Sorting complete.", "sorted_list": state["work_list"][0]}
+
+    task = state["current_task"]
+    left, right = task["left"], task["right"]
+    i, j = task["i"], task["j"]
+
+    # If one side is exhausted, finish the merge.
+    if i >= len(left) or j >= len(right):
+        state = complete_merge_task(state)
+        update_session_state(session_id, state)
+        # Recursively call to get the next comparison.
+        return get_next_comparison(session_id)
+
+    update_session_state(session_id, state)
+    return {"item_a": left[i], "item_b": right[j]}
+
+
+@app.post("/api/sort/{session_id}/compare")
+def post_comparison(session_id: str, input_data: CompareInput):
+    """
+    Submits the user's decision for the current comparison.
+    The decision is applied to update the current merge task.
+    """
+    choice = input_data.choice.strip().upper()
+    if choice not in ["A", "B"]:
+        raise HTTPException(status_code=400, detail="Choice must be 'A' or 'B'.")
+
+    state = get_session_state(session_id)
+    if state["status"] == "completed":
+        return {"message": "Sorting already complete.", "sorted_list": state["work_list"][0]}
+
+    if state["current_task"] is None:
+        # If no task is active, try to initiate one.
+        state = initiate_merge_task(state)
+        if state["current_task"] is None:
+            raise HTTPException(status_code=400, detail="No merge task available.")
+    task = state["current_task"]
+
+    # Apply the user's choice.
+    if choice == "A":
+        task["merged"].append(task["left"][task["i"]])
+        task["i"] += 1
+    else:  # choice == "B"
+        task["merged"].append(task["right"][task["j"]])
+        task["j"] += 1
+
+    # If one side is now exhausted, complete the merge.
+    if task["i"] >= len(task["left"]) or task["j"] >= len(task["right"]):
+        state = complete_merge_task(state)
+    # (If not, the current task remains active.)
+    update_session_state(session_id, state)
+    return {"message": "Choice recorded.", "next": get_next_comparison(session_id)}
+
+
+@app.get("/api/sort/{session_id}/result")
+def get_result(session_id: str):
+    """
+    Returns the final sorted list if the session is complete.
+    """
+    state = get_session_state(session_id)
+    if state["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Sorting is not complete yet.")
+    return {"sorted_list": state["work_list"][0]}
+
+@app.options("/api/sort/start")
+async def options_start():
+    return {} 

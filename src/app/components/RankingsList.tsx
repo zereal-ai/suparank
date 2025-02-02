@@ -1,11 +1,23 @@
-import { Item } from '../api';
+import { Item, deleteItem } from '../api';
+import { XMarkIcon } from '@heroicons/react/20/solid';
 
 interface RankingsListProps {
   items: Item[];
   loading: boolean;
+  onItemDeleted: () => void;
 }
 
-export function RankingsList({ items, loading }: RankingsListProps) {
+export function RankingsList({ items, loading, onItemDeleted }: RankingsListProps) {
+  const handleDelete = async (itemId: string) => {
+    try {
+      await deleteItem(itemId);
+      onItemDeleted();
+    } catch (error) {
+      console.error('Failed to delete item:', error);
+      // You might want to show a toast notification here
+    }
+  };
+
   return (
     <section className="bg-white">
       <h2 className="text-lg font-medium mb-4 text-gray-900">
@@ -27,22 +39,19 @@ export function RankingsList({ items, loading }: RankingsListProps) {
             {items.map((entry) => (
               <div
                 key={entry.id}
-                className={`flex items-center gap-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200`}
+                className={`flex items-center gap-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200 group`}
               >
-                <div className="flex-shrink-0 flex items-center">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold
-                    ${entry.rank !== null 
-                      ? "bg-blue-500 text-white" 
-                      : "border-2 border-blue-500 text-transparent"
-                    }`}
-                  >
-                    {entry.rank}
-                  </div>
-                </div>
                 <div className="flex-grow min-w-0">
                   <h3 className="text-lg font-semibold text-gray-900 leading-tight">{entry.title}</h3>
                   <p className="text-gray-600 text-sm">{entry.description}</p>
                 </div>
+                <button
+                  onClick={() => handleDelete(entry.id)}
+                  className="p-2 text-gray-400 hover:text-red-500 transition-colors duration-200 opacity-0 group-hover:opacity-100"
+                  title="Delete item"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
               </div>
             ))}
           </div>
