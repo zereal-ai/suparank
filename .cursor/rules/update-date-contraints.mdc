@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+When searching for the newest version of a package, never include a date or year, as the model cutoff could be older than the actual newest package we are looking for.

@@ -2,20 +2,28 @@ import os
 import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from pyairtable import Table
+from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load environment variables from .env
 load_dotenv()
-AIRTABLE_TOKEN = os.getenv("AIRTABLE_TOKEN")
-AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
-AIRTABLE_SESSIONS_TABLE_ID = os.getenv("AIRTABLE_SESSIONS_TABLE_ID")
-AIRTABLE_ITEMS_TABLE_ID = os.getenv("AIRTABLE_ITEMS_TABLE_ID")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv(
+    "SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_KEY")
+)  # Try service role key first
 
-# Initialize the Airtable Table objects
-sessions_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_SESSIONS_TABLE_ID)
-items_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_ITEMS_TABLE_ID)
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError(
+        "SUPABASE_URL and SUPABASE_KEY (or SUPABASE_SERVICE_ROLE_KEY) must be set in environment variables"
+    )
+
+# Initialize Supabase client with options for better error handling
+options = ClientOptions(
+    headers={"apiKey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
 
 # Initialize the FastAPI app
 app = FastAPI(title="Interactive Merge Sort Service")
@@ -26,8 +34,9 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
+
 
 # ---------------------
 # Pydantic models
@@ -35,76 +44,82 @@ app.add_middleware(
 class StartSessionInput(BaseModel):
     items: list[str]  # For example: ["three", "four", "two", "one", "five"]
 
+
 class CompareInput(BaseModel):
     choice: str  # Expected to be "A" or "B"
+
 
 class ItemInput(BaseModel):
     title: str
     description: str | None = None
 
+
 # ---------------------
-# Helper functions to get/update session state from Airtable
+# Helper functions to get/update session state from Supabase
 # ---------------------
-def get_session_state(session_id: str) -> dict:
+async def get_session_state(session_id: str) -> dict:
     try:
-        record = sessions_table.get(session_id)
-        state_json = record["fields"].get("state")
+        response = (
+            supabase.table("sessions")
+            .select("state")
+            .eq("id", session_id)
+            .single()
+            .execute()
+        )
+        if not response.data:
+            raise ValueError("Session not found")
+        state_json = response.data.get("state")
         if state_json is None:
             raise ValueError("Session state not found in record.")
-        return json.loads(state_json)
+        return json.loads(state_json) if isinstance(state_json, str) else state_json
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Session not found: {e}")
 
 
-def update_session_state(session_id: str, state: dict):
+async def update_session_state(session_id: str, state: dict):
     try:
-        sessions_table.update(session_id, {"state": json.dumps(state)})
+        supabase.table("sessions").update({"state": state}).eq(
+            "id", session_id
+        ).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update session: {e}")
+
 
 # ---------------------
 # Items API Endpoints
 # ---------------------
 @app.get("/api/items")
-def get_items():
-    """Get all items from Airtable"""
+async def get_items():
+    """Get all items from Supabase"""
     try:
-        records = items_table.all()
-        return [
-            {
-                "id": record["id"],
-                "title": record["fields"].get("title", ""),
-                "description": record["fields"].get("description", "")
-            }
-            for record in records
-        ]
+        response = supabase.table("items").select("id, title, description").execute()
+        return response.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch items: {e}")
 
+
 @app.post("/api/items")
-def create_item(item: ItemInput):
-    """Create a new item in Airtable"""
+async def create_item(item: ItemInput):
+    """Create a new item in Supabase"""
     try:
         fields = {"title": item.title}
         if item.description:
             fields["description"] = item.description
-        record = items_table.create(fields)
-        return {
-            "id": record["id"],
-            "title": record["fields"].get("title", ""),
-            "description": record["fields"].get("description", "")
-        }
+        response = supabase.table("items").insert(fields).execute()
+        return response.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create item: {e}")
 
+
 @app.delete("/api/items/{item_id}")
-def delete_item(item_id: str):
-    """Delete an item from Airtable"""
+async def delete_item(item_id: str):
+    """Delete an item from Supabase"""
     try:
-        items_table.delete(item_id)
+        supabase.table("items").delete().eq("id", item_id).execute()
         return {"message": "Item deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete item: {e}")
+
 
 # ---------------------
 # Merge Sort State Helpers
@@ -122,7 +137,7 @@ def initiate_merge_task(state: dict) -> dict:
             "right": right,
             "i": 0,
             "j": 0,
-            "merged": []
+            "merged": [],
         }
     return state
 
@@ -155,11 +170,12 @@ def complete_merge_task(state: dict) -> dict:
         state["status"] = "completed"
     return state
 
+
 # ---------------------
 # API Endpoints
 # ---------------------
 @app.post("/api/sort/start")
-def start_session(input_data: StartSessionInput):
+async def start_session(input_data: StartSessionInput):
     """
     Start a new merge sort session. The input list is stored as references to the items (item IDs) in the session state,
     and a "work_list" is created as a list of single-item lists containing these item IDs.
@@ -168,27 +184,31 @@ def start_session(input_data: StartSessionInput):
     if not items:
         raise HTTPException(status_code=400, detail="List cannot be empty.")
 
-    # Initial state: each provided item (which should be an item record ID from the Items table) becomes a one-element sublist.
+    # Initial state: each provided item becomes a one-element sublist
     state = {
         "item_refs": items,
         "work_list": [[item] for item in items],
         "current_task": None,
-        "status": "in_progress"
+        "status": "in_progress",
     }
-    # Create a new record in Airtable; Airtable will generate an ID for the session.
-    record = sessions_table.create({"state": json.dumps(state)})
-    session_id = record["id"]
-    return {"session_id": session_id}
+
+    try:
+        # Create a new record in Supabase
+        response = supabase.table("sessions").insert({"state": state}).execute()
+        session_id = response.data[0]["id"]
+        return {"session_id": session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {e}")
 
 
 @app.get("/api/sort/{session_id}/next")
-def get_next_comparison(session_id: str):
+async def get_next_comparison(session_id: str):
     """
     Returns the next pair of items to compare.
     If no current merge task exists, one is initiated (if possible).
     If one side of the merge is exhausted, completes the task and moves on.
     """
-    state = get_session_state(session_id)
+    state = await get_session_state(session_id)
     if state["status"] == "completed":
         return {"message": "Sorting complete.", "sorted_list": state["work_list"][0]}
 
@@ -197,7 +217,7 @@ def get_next_comparison(session_id: str):
     if state["current_task"] is None:
         # If no merge task can be initiated, sorting must be complete.
         state["status"] = "completed"
-        update_session_state(session_id, state)
+        await update_session_state(session_id, state)
         return {"message": "Sorting complete.", "sorted_list": state["work_list"][0]}
 
     task = state["current_task"]
@@ -207,16 +227,16 @@ def get_next_comparison(session_id: str):
     # If one side is exhausted, finish the merge.
     if i >= len(left) or j >= len(right):
         state = complete_merge_task(state)
-        update_session_state(session_id, state)
+        await update_session_state(session_id, state)
         # Recursively call to get the next comparison.
-        return get_next_comparison(session_id)
+        return await get_next_comparison(session_id)
 
-    update_session_state(session_id, state)
+    await update_session_state(session_id, state)
     return {"item_a": left[i], "item_b": right[j]}
 
 
 @app.post("/api/sort/{session_id}/compare")
-def post_comparison(session_id: str, input_data: CompareInput):
+async def post_comparison(session_id: str, input_data: CompareInput):
     """
     Submits the user's decision for the current comparison.
     The decision is applied to update the current merge task.
@@ -225,9 +245,12 @@ def post_comparison(session_id: str, input_data: CompareInput):
     if choice not in ["A", "B"]:
         raise HTTPException(status_code=400, detail="Choice must be 'A' or 'B'.")
 
-    state = get_session_state(session_id)
+    state = await get_session_state(session_id)
     if state["status"] == "completed":
-        return {"message": "Sorting already complete.", "sorted_list": state["work_list"][0]}
+        return {
+            "message": "Sorting already complete.",
+            "sorted_list": state["work_list"][0],
+        }
 
     if state["current_task"] is None:
         # If no task is active, try to initiate one.
@@ -248,20 +271,24 @@ def post_comparison(session_id: str, input_data: CompareInput):
     if task["i"] >= len(task["left"]) or task["j"] >= len(task["right"]):
         state = complete_merge_task(state)
     # (If not, the current task remains active.)
-    update_session_state(session_id, state)
-    return {"message": "Choice recorded.", "next": get_next_comparison(session_id)}
+    await update_session_state(session_id, state)
+    return {
+        "message": "Choice recorded.",
+        "next": await get_next_comparison(session_id),
+    }
 
 
 @app.get("/api/sort/{session_id}/result")
-def get_result(session_id: str):
+async def get_result(session_id: str):
     """
     Returns the final sorted list if the session is complete.
     """
-    state = get_session_state(session_id)
+    state = await get_session_state(session_id)
     if state["status"] != "completed":
         raise HTTPException(status_code=400, detail="Sorting is not complete yet.")
     return {"sorted_list": state["work_list"][0]}
 
+
 @app.options("/api/sort/start")
 async def options_start():
-    return {} 
+    return {}
