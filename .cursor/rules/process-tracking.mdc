@@ -1,0 +1,13 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+ # Background Process Command Rule
+
+As a Cursor assistant, I must:
+
+- ALWAYS think first whether the command I am about to execute is a long-running process or not (examples are server processes, log tailing etc.)
+- If the command is a long-running process
+   - ALWAYS check first if the process is already running, and if it is, do not start it again
+   - ALWAYS pop-out the terminal when starting a long-running process
